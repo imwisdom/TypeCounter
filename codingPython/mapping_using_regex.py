@@ -24,14 +24,14 @@ def error_to_solve(error_log):
     elif error_checker("memory|overflow|truncated|recursion", error_log) is not None:  # 9
         solve = "너무 많은 메모리 사용 (혹은 너무 많은 재귀)"
     elif error_checker("package|import|classdef", error_log) is not None:  # 4
-        solve = "package나 라이브러리가 정상적으로 import 되었는 지 확인"
+        solve = "import가 정상적으로 되었는지 확인"
         #check imported packages or modules
     elif error_checker("no 'main'", error_log) is not None:  # 15
-        solve = "main 함수가 없음. java의 경우 'public static void main(String[] args)' 필요"
+        solve = "'public static void main' 필요"
     elif error_checker("index", error_log) is not None:  # 1
         solve = "index는 전체 size-1까지 가능"
     elif error_checker("expression|syntax|;", error_log) is not None:  # 2
-        recommend_msg = "구문 error. 오타가 난 것이 아닌지 확인 (ex: ';', '{}', '()' ':')"
+        recommend_msg = "오타가 난 것이 아닌지 확인 (ex: ';', '{}', '()' ':')"
         if error_checker("syntax", error_log) is not None:
             recommend_msg += "\n\rpy2의 경우 input() 대신 raw_input()사용"
         solve = recommend_msg

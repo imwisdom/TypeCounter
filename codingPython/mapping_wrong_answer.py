@@ -1,6 +1,8 @@
 import re
-from python_checker import evaluate
+from python_checker import evaluate, evaluate_using_json_data, dict_total_data
 import subprocess
+import json
+
 # submitid, testcaseid, runresult, output_run, output
 
 solve = ""
@@ -57,9 +59,10 @@ def is_same(lists):
         if checked_data.decode() != error_data[3].decode():
             return False
 
-    if checked_data.decode().strip() == "2147483647":
+    if checked_data.decode().strip() == "2147483647" or  checked_data.decode().strip() == "Negative Cycle!":
         return False
     return True
+
 
 def check_source_code(wrong_source_code, correct_source_code, lang):
 
@@ -87,6 +90,46 @@ def check_source_code(wrong_source_code, correct_source_code, lang):
     elif lang == 'Python 3':
 
         return evaluate(wrong_source_code, correct_source_code)
+
+
+def check_source_code_using_json(source_code, lang, probid) :
+    cur_data = {}
+    total_json_data = {}
+    if lang == 'Java' :
+        wrong_source_code = source_code.split("\n")
+        f = open("/home/oem/Desktop/testJava.java", "w")
+
+        for code in wrong_source_code :
+            f.write(code+"\n")
+        f.close()
+
+        proc = subprocess.check_output(["java", "-jar", "/home/oem/IdeaProjects/MavenProject/out/artifacts/MavenProject_jar2/MavenProject.jar", "/home/oem/Desktop/testJava.java"])
+        cur_data = proc.decode().strip()
+        cur_data = json.loads(cur_data)
+
+        with open("/home/oem/Desktop/java_json.json") as json_file:
+            total_json_data = json.load(json_file)
+
+        total_json_data = total_json_data[probid]
+        json_file.close()
+
+    elif lang == 'Python 3' :
+        cur_data = dict_total_data(source_code)
+        with open("/home/oem/Desktop/python_json.json") as json_file:
+            total_json_data = json.load(json_file)
+
+        total_json_data = total_json_data[probid]
+        json_file.close()
+
+    else :
+        return None, None, None
+
+    return evaluate_using_json_data(cur_data, total_json_data)
+
+
+
+
+
 
 
 

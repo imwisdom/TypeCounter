@@ -1,16 +1,19 @@
-
 import pythonparser
 from pythonparser.ast import FunctionDef, Assign, Dict, List, Subscript, Index, Str, Num, Name, Attribute, If, Tuple, \
-    Set, BinOp, While, DictComp, ListComp
+    Set, BinOp, While, DictComp, ListComp, Expr, ClassDef
 from pythonparser.ast import For
 from pythonparser.ast import Call
 from pythonparser.parser import commalist
+import math
 
 loop_count = 5
 recv_count = 4
 
 func_count_map = {}
 func_node_map = {}
+
+class_count_map = {}
+class_node_map = {}
 
 list_map = {}
 dict_map = {}
@@ -19,6 +22,7 @@ set_map = {}
 map_map = {}
 
 is_correct_map = True
+
 
 def count_func_into_map(node):
     global func_count_map
@@ -32,14 +36,39 @@ def count_func_into_map(node):
         func_count_map[name] = func_count_map[name] + 1
 
 
-def count_var_into_map(method_name, target, value):
+def count_class_into_map(node):
+    global class_count_map
+    global class_node_map
+    name = ""
+
+    if hasattr(node, 'name'):
+        name = node.name
+    elif hasattr(node, 'id'):
+        name = node.id
+
+    if name == "" :
+        return
+
+    if not name in class_count_map:
+        class_count_map[name] = 1
+        class_node_map[name] = node
+        count_object_type(node.body)
+    else:
+        class_count_map[name] = class_count_map[name] + 1
+        class_node = class_node_map[name]
+
+        if isinstance(class_node.body[0], FunctionDef) and class_node.body[0].name == "__init__" :
+            count_object_type(class_node.body[0].body)
+
+
+def count_var_into_map(target, value):
     name = ''
 
     if hasattr(target, 'name'):
         name = target.name
     elif hasattr(target, 'id'):
         name = target.id
-    elif hasattr(target, 'value') and hasattr(target, 'id'):
+    elif hasattr(target, 'value') and hasattr(target.value, 'id'):
         name = target.value.id
 
     global dict_map
@@ -47,57 +76,61 @@ def count_var_into_map(method_name, target, value):
     global tuple_map
     global set_map
     global map_map
+    global class_count_map
 
-
-    if name == '' :
+    if name == '':
         return
 
-    name = method_name+name
-
-    if name in dict_map :
+    if name in dict_map:
         dict_map[name] = dict_map[name] + 1
 
-    elif name in list_map :
+    elif name in list_map:
         list_map[name] = list_map[name] + 1
 
-    elif name in tuple_map :
+    elif name in tuple_map:
         tuple_map[name] = tuple_map[name] + 1
 
-    elif name in set_map :
+    elif name in set_map:
         set_map[name] = set_map[name] + 1
 
     elif isinstance(value, DictComp) or isinstance(value, Dict) or \
             (isinstance(value, Index) and (isinstance(value.value, Str))):
-            dict_map[name] = 1
+        dict_map[name] = 1
 
-    elif isinstance(value, ListComp) or isinstance(value, List) or (isinstance(value, Index) and isinstance(value.value, Num)):
-            list_map[name] = 1
+    elif isinstance(value, ListComp) or isinstance(value, List) or (
+            isinstance(value, Index) and isinstance(value.value, Num)):
+        list_map[name] = 1
 
-    elif isinstance(value, Tuple) :
-            tuple_map[name] = 1
+    elif isinstance(value, Tuple):
+        tuple_map[name] = 1
 
-    elif isinstance(value, Set) :
-            set_map[name] = 1
 
-    elif isinstance(value, Call) :
+    elif isinstance(value, Set):
+        set_map[name] = 1
+
+    elif isinstance(value, Call):
         value_func = value.func
-        if isinstance(value_func, Name) :
+        if isinstance(value_func, Name):
             func_name = value_func.id
-            if func_name == 'dict' or func_name == 'defaultdict' :
+
+            if func_name in class_count_map :
+                count_class_into_map(value_func)
+            elif func_name == 'dict' or func_name == 'defaultdict':
                 dict_map[name] = 1
-            elif func_name == 'map' :
+            elif func_name == 'map':
                 map_map[name] = 1
-            elif func_name == 'list' :
+            elif func_name == 'list':
                 list_map[name] = 1
-            elif func_name == 'set' :
+            elif func_name == 'set':
                 set_map[name] = 1
-            elif func_name == 'tuple' :
+            elif func_name == 'tuple':
                 tuple_map[name] = 1
 
-        elif isinstance(value_func, Attribute) and isinstance(value_func.value, Name) and value_func.value.id == 'collections' :
-            if value_func.attr.find('dict') or value_func.attr.find('Dict') :
+        elif isinstance(value_func, Attribute) and isinstance(value_func.value,
+                                                              Name) and value_func.value.id == 'collections':
+            if value_func.attr.find('dict') or value_func.attr.find('Dict'):
                 dict_map[name] = 1
-            elif value_func.attr.find('tuple') :
+            elif value_func.attr.find('tuple'):
                 tuple_map[name] = 1
 
 
@@ -105,7 +138,7 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
     global loop_count
     global recv_count
 
-    if parent_recv_num >= recv_count :
+    if parent_recv_num >= recv_count:
         return
 
     for a_body in body_list:
@@ -127,10 +160,16 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
 
         elif isinstance(a_body, Call):
 
-            if hasattr(a_body, 'args') :
+            if hasattr(a_body, 'args'):
                 count_object_type_in_method(a_body.args, parent_func_name, parent_recv_num)
 
             if isinstance(a_body.func, Attribute):
+                if str(type(a_body.func.attr)) == "<class 'str'>" and a_body.func.attr in func_node_map :
+                    if a_body.func.attr == parent_func_name :
+                        count_object_type_in_method(func_node_map[a_body.func.attr].body, a_body.func.attr, parent_recv_num+1)
+                    else :
+                        count_object_type_in_method(func_node_map[a_body.func.attr].body, a_body.func.attr,
+                                                    parent_recv_num)
                 count_object_type_in_method([a_body.func], parent_func_name, parent_recv_num)
                 continue
 
@@ -142,7 +181,10 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
                 name = a_body.func.id
 
             if not name in func_node_map:
-                count_object_type_in_method([a_body.func], parent_func_name, parent_recv_num)
+                if name in class_node_map :
+                    count_object_type_in_method([class_node_map[name]], parent_func_name, parent_recv_num)
+                else :
+                    count_object_type_in_method([a_body.func], parent_func_name, parent_recv_num)
                 continue
 
             func_node = func_node_map[name]
@@ -153,27 +195,26 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
             #         count_object_type_in_method(func_node.body)
             #         count_func_into_map(func_node)
 
-            if func_node != None :
-                if name != parent_func_name :
+            if func_node != None:
+                if name != parent_func_name:
                     count_object_type_in_method(func_node.body, name, parent_recv_num)
                     count_func_into_map(func_node)
-                else :
-                    count_object_type_in_method(func_node.body, parent_func_name, parent_recv_num+1)
+                else:
+                    count_object_type_in_method(func_node.body, parent_func_name, parent_recv_num + 1)
                     count_func_into_map(func_node)
-
 
         elif isinstance(a_body, Assign):
             var_target = a_body.targets
             var_value = a_body.value
 
-            if isinstance(var_target[0], Subscript) :
+            if isinstance(var_target[0], Subscript):
                 count_object_type_in_method(var_target, parent_func_name, parent_recv_num)
             elif isinstance(var_value, BinOp) and isinstance(var_value.left, List):
-                count_var_into_map(parent_func_name, var_target[0], var_value.left)
+                count_var_into_map(var_target[0], var_value.left)
             elif isinstance(var_value, BinOp) and isinstance(var_value.right, List):
-                count_var_into_map(parent_func_name, var_target[0], var_value.right)
-            else :
-                count_var_into_map(parent_func_name, var_target[0], var_value)
+                count_var_into_map(var_target[0], var_value.right)
+            else:
+                count_var_into_map(var_target[0], var_value)
 
             # count_object_type_in_method(var_target)
             count_object_type_in_method([var_value, None], parent_func_name, parent_recv_num)
@@ -183,12 +224,12 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
                 if isinstance(a_body.value, Subscript) or isinstance(a_body.value, Call):
                     count_object_type_in_method([a_body.value], parent_func_name, parent_recv_num)
                 else:
-                    count_var_into_map(parent_func_name, a_body.value, a_body.slice)
+                    count_var_into_map(a_body.value, a_body.slice)
 
         elif isinstance(a_body, If):
             count_object_type_in_method(a_body.body, parent_func_name, parent_recv_num)
 
-            if hasattr(a_body, 'orelse') :
+            if hasattr(a_body, 'orelse'):
                 count_object_type_in_method(a_body.orelse, parent_func_name, parent_recv_num)
 
             if hasattr(a_body.test, 'comparators'):
@@ -198,17 +239,18 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
             if hasattr(a_body.test, 'values'):
                 count_object_type_in_method(a_body.test.values, parent_func_name, parent_recv_num)
 
-
-
         elif isinstance(a_body, Name):
-            count_var_into_map(parent_func_name, a_body, None)
+            count_var_into_map(a_body, None)
 
         elif isinstance(a_body, BinOp):
             count_object_type_in_method([a_body.left], parent_func_name, parent_recv_num)
             count_object_type_in_method([a_body.right], parent_func_name, parent_recv_num)
 
-        elif isinstance(a_body, commalist) :
+        elif isinstance(a_body, commalist):
             count_object_type_in_method(a_body, parent_func_name, parent_recv_num)
+
+        elif isinstance(a_body, Expr):
+            count_object_type_in_method([a_body.value], parent_func_name, parent_recv_num)
 
         elif hasattr(a_body, 'elts'):
             count_object_type_in_method([a_body.elts], parent_func_name, parent_recv_num)
@@ -219,11 +261,15 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
         elif hasattr(a_body, 'value'):
             count_object_type_in_method([a_body.value], parent_func_name, parent_recv_num)
 
+        elif str(type(a_body)) == "<class 'list'>" and len(a_body)>1:
+            count_object_type_in_method(a_body, parent_func_name, parent_recv_num)
+
 
 def count_object_type(body_list):
     global loop_count
     global recv_count
     global func_node_map
+    global class_node_map
 
     for a_body in body_list:
         if isinstance(a_body, For):
@@ -243,10 +289,13 @@ def count_object_type(body_list):
 
         elif isinstance(a_body, Call):
             name = ""
-            if hasattr(a_body, 'args') :
+            if hasattr(a_body, 'args'):
                 count_object_type(a_body.args)
 
-            if isinstance(a_body.func, Attribute) :
+            if isinstance(a_body.func, Attribute):
+
+                if str(type(a_body.func.attr)) == "<class 'str'>" and a_body.func.attr in func_node_map :
+                    count_object_type_in_method(func_node_map[a_body.func.attr].body, a_body.func.attr, 0)
                 count_object_type([a_body.func])
                 continue
 
@@ -258,7 +307,10 @@ def count_object_type(body_list):
                 name = a_body.func.id
 
             if not name in func_node_map:
-                count_object_type([a_body.func])
+                if name in class_node_map :
+                    count_object_type([class_node_map[name]])
+                else :
+                    count_object_type([a_body.func])
                 continue
 
             func_node = func_node_map[name]
@@ -277,20 +329,20 @@ def count_object_type(body_list):
                 count_object_type_in_method(func_node.body, name, 0)
                 count_func_into_map(func_node)
 
-
         elif isinstance(a_body, Assign):
             var_target = a_body.targets
             var_value = a_body.value
 
-            if isinstance(var_target[0], Subscript) :
+            if isinstance(var_target[0], Subscript):
                 count_object_type(var_target)
             elif isinstance(var_value, BinOp) and isinstance(var_value.left, List):
-                count_var_into_map("", var_target[0], var_value.left)
+                count_var_into_map(var_target[0], var_value.left)
             elif isinstance(var_value, BinOp) and isinstance(var_value.right, List):
-                count_var_into_map("", var_target[0], var_value.right)
-            else :
-                count_var_into_map("", var_target[0], var_value)
+                count_var_into_map(var_target[0], var_value.right)
+            else:
+                count_var_into_map(var_target[0], var_value)
             # count_object_type(var_target)
+
             count_object_type([var_value])
 
         elif isinstance(a_body, Subscript):
@@ -298,27 +350,33 @@ def count_object_type(body_list):
                 if isinstance(a_body.value, Subscript) or isinstance(a_body.value, Call):
                     count_object_type([a_body.value])
                 else:
-                    count_var_into_map("", a_body.value, a_body.slice)
+                    count_var_into_map(a_body.value, a_body.slice)
 
         elif isinstance(a_body, If):
             count_object_type(a_body.body)
 
-            if hasattr(a_body, 'orelse') :
+            if hasattr(a_body, 'orelse'):
                 count_object_type(a_body.orelse)
-            if hasattr(a_body.test, 'comparators') :
+            if hasattr(a_body.test, 'comparators'):
                 count_object_type(a_body.test.comparators)
                 count_object_type([a_body.test.left])
-            if hasattr(a_body.test, 'values') :
+            if hasattr(a_body.test, 'values'):
                 count_object_type(a_body.test.values)
 
         elif isinstance(a_body, Name):
-            count_var_into_map("", a_body, None)
+            count_var_into_map(a_body, None)
 
         elif isinstance(a_body, BinOp):
             count_object_type([a_body.left])
             count_object_type([a_body.right])
 
-        elif isinstance(a_body, commalist) :
+        elif isinstance(a_body, ClassDef):
+            count_class_into_map(a_body)
+
+        elif isinstance(a_body, Expr) :
+            count_object_type([a_body.value])
+
+        elif isinstance(a_body, commalist):
             count_object_type(a_body)
 
         elif hasattr(a_body, 'elts'):
@@ -333,53 +391,173 @@ def count_object_type(body_list):
         elif hasattr(a_body, 'values'):
             count_object_type(a_body.values)
 
+        elif str(type(a_body)) == "<class 'list'>" and len(a_body)>1:
+            count_object_type(a_body)
 
-def evaluate(training_src, test_src) :
+
+def evaluate_using_json_data(wrong_dict, correct_total_dict):
+    #print("wrong_dict : ", wrong_dict)
+    #print("correct_dict : ", correct_total_dict["sum"])
+
+    count_dict = correct_total_dict["count"]
+    not_used_list = []
+
+    #similarity
+    wrong_mul_sum = 0
+    wrong_sum = 0
+    sum_sum = 0
+    sum_dict = correct_total_dict["sum"]
+    similarity = 0
+
+    # for key in wrong_dict :
+    #     wrong_mul_sum = wrong_mul_sum + wrong_dict[key]*sum_dict[key]
+    #     wrong_sum = wrong_sum + wrong_dict[key]**2
+    #     sum_sum = sum_sum + sum_dict[key]**2
+    #
+    # wrong_sum = math.sqrt(wrong_sum)
+    # sum_sum = math.sqrt(sum_sum)
+    #
+    # if wrong_sum*sum_sum == 0:
+    #     similarity = 0
+    # else :
+    #     similarity = wrong_mul_sum/(wrong_sum*sum_sum)
+
+    for key in wrong_dict :
+        similarity = similarity + (wrong_dict[key] - sum_dict[key])**2
+
+    similarity = math.sqrt(similarity)
+    #print("similarity : ", similarity)
+
+    for key in count_dict:
+        if count_dict[key] >= 0.85 and wrong_dict[key] == 0:
+            not_used_list.append(key)
+
+    if len(not_used_list) > 0 :
+        for key in not_used_list :
+            if (key == "List" and "Array" in wrong_dict and wrong_dict["Array"] > 0) or (key == "Array" and wrong_dict["List"] > 0) :
+                not_used_list.remove(key)
+        if len(not_used_list) > 0 :
+            return None, "사용 권장 데이터 타입 : "+str(not_used_list), similarity
+
+    sum_of_wrong = 0
+    for key in wrong_dict :
+        sum_of_wrong = sum_of_wrong + wrong_dict[key]
+
+    diff_dict = {}
+
+    for key in wrong_dict:
+        if sum_dict[key] == 0 or wrong_dict[key] == 0 or count_dict[key] == 0:
+            continue
+
+        #cur_diff = (abs(sum_dict[key] - wrong_dict[key])/sum_dict[key])*(wrong_dict[key]/sum_of_wrong)
+
+        cur_diff = math.sqrt((sum_dict[key] - wrong_dict[key])**2+(count_dict[key]-1)**2)
+        diff_dict[key] = cur_diff
+
+    def sort_for_value(x):
+        return x[1]
+
+    sorted_diff = sorted(diff_dict.items(), key=sort_for_value, reverse=True)
+    solve = sorted_diff[0][0]+" 사용 방식이 잘못되었습니다.\n"
+
+    return sorted_diff, solve, similarity
+
+
+# def evaluate_using_json_data(wrong_dict, correct_total_dict):
+#     print("wrong_dict : ", wrong_dict)
+#     print("correct_dict : ", correct_total_dict["sum"])
+#
+#     count_dict = correct_total_dict["count"]
+#     not_used_list = []
+#
+#     for key in count_dict:
+#         if count_dict[key] >= 0.7 and wrong_dict[key] == 0:
+#             not_used_list.append(key)
+#
+#     if len(not_used_list) > 0:
+#         return "사용 권장 데이터 타입 : " + str(not_used_list)
+#
+#
+#     sum_dict = correct_total_dict["sum"]
+#     sum_of_wrong = 0
+#     for key in wrong_dict:
+#         sum_of_wrong = sum_of_wrong + wrong_dict[key]
+#
+#     for key in wrong_dict:
+#         wrong_dict[key] = wrong_dict[key]/sum_of_wrong
+#
+#     sum_of_wrong = 0
+#     for key in sum_dict:
+#         sum_of_wrong = sum_of_wrong + sum_dict[key]
+#
+#     for key in sum_dict:
+#         sum_dict[key] = sum_dict[key] / sum_of_wrong
+#
+#     diff_dict = {}
+#     for key in wrong_dict :
+#         cur_diff = abs(sum_dict[key]-wrong_dict[key])
+#         if cur_diff > 0 and wrong_dict[key] > 0:
+#             diff_dict[key] = cur_diff
+#
+#     def sort_for_value(x):
+#         return x[1]
+#
+#     sorted_diff = sorted(diff_dict.items(), key=sort_for_value, reverse=True)
+#     return sorted_diff
+
+def evaluate(training_src, test_src):
     training_array = count_total_data(training_src)
     test_array = count_total_data(test_src)
 
     max = 0
     max_index = 0
 
-    for i in range(0, 5) :
-        if training_array[i] == 0 and test_array[i] > 0 :
-            if i == 0 :
+    for i in range(0, 5):
+        if training_array[i] == 0 and test_array[i] > 0:
+            if i == 0:
                 return "List를 사용해 보세요"
-            elif i == 1 :
+            elif i == 1:
                 return "Dictionary를 사용해 보세요"
-            elif i == 2 :
+            elif i == 2:
                 return "Tuple을 사용해 보세요"
-            elif i == 3 :
+            elif i == 3:
                 return "Set을 사용해 보세요"
-            else :
+            else:
                 return "Map을 사용해 보세요"
 
-        else :
-            if test_array[i] == 0 :
+        else:
+            if test_array[i] == 0:
                 continue
-            cur = abs(test_array[i] - training_array[i])/test_array[i]
-            if cur > max :
+            cur = abs(test_array[i] - training_array[i]) / test_array[i]
+            if cur > max:
                 max = cur
                 max_index = i
 
-
-    if max == 0 :
+    if max == 0:
         return "사소한 값들이 잘못 설정되어있음"
-    else :
-        if max_index == 0 :
+    else:
+        if max_index == 0:
             return "List 사용 방식이 잘못됨"
-        elif max_index == 1 :
+        elif max_index == 1:
             return "Dictionary 사용 방식이 잘못됨"
-        elif max_index == 2 :
+        elif max_index == 2:
             return "Tuple 사용 방식이 잘못됨"
-        elif max_index == 3 :
+        elif max_index == 3:
             return "Set 사용 방식이 잘못됨"
-        elif max_index == 4 :
+        elif max_index == 4:
             return "Map 사용 방식이 잘못됨"
         return ""
 
 
-def count_total_data(source_code) :
+def dict_total_data(source_code):
+    total_array = count_total_data(source_code)
+    total_dict = {"List": total_array[0], "Dictionary": total_array[1], "Tuple": total_array[2], "Set": total_array[3],
+                  "Map": total_array[4]}
+
+    return total_dict
+
+
+def count_total_data(source_code):
     global func_count_map
     global func_node_map
     global list_map
@@ -390,8 +568,8 @@ def count_total_data(source_code) :
 
     source_code = source_code.strip()
     new_src_code = ""
-    for a_src in source_code.split("\n") :
-        if a_src.find('class ') > -1 and a_src.find("()") > -1 :
+    for a_src in source_code.split("\n"):
+        if a_src.find('class ') > -1 and a_src.find("()") > -1:
             a_src = a_src.replace("()", "(self)")
         new_src_code = new_src_code + a_src + "\n"
 
@@ -412,7 +590,7 @@ def count_total_data(source_code) :
     return total_array
 
 
-def total_list_data(list_map) :
+def total_list_data(list_map):
     sum = 0
 
     for key in list_map:
@@ -435,7 +613,7 @@ def total_tuple_data(tuple_map):
     return sum
 
 
-def total_set_data(set_map) :
+def total_set_data(set_map):
     sum = 0
 
     for key in set_map:
@@ -444,277 +622,10 @@ def total_set_data(set_map) :
     return sum
 
 
-def total_map_data(map_map) :
+def total_map_data(map_map):
     sum = 0
 
     for key in map_map:
         sum = sum + map_map[key]
 
     return sum
-
-
-wrong_source_code = '''
-
-import math
-def reconstruct_path(cameFrom, current):
-    total_path = list([current])
-    while current in cameFrom.keys():
-        current = cameFrom[current]
-        total_path.append(current)
-    return total_path
-
-def A_star(graph, start, goal): #start : ex) (0,0)
-    openset = list([start])
-    cameFrom = dict()
-    
-    gScore = dict() #gscore[n] n 까지의 최소 길이
-    for i in graph.keys():
-        gScore[i] = float('inf')
-    gScore[goal] = float('inf')
-    gScore[start] = 0
-    
-    fScore = dict()
-    for i in graph.keys():
-        fScore[i] = float('inf')
-    fScore[start] = heuristic(start,goal) # h(start) = goal 까지의길이
-    while openset != []:
-        current = openset[0]
-        for i in openset:
-            if fScore[i] < fScore[current]:
-                current = i
-        if current == goal:
-            return reconstruct_path(cameFrom,current)
-        openset.remove(current)
-
-        for neighbor in graph.get(current).keys():
-            tentative_gScore = gScore[current] + graph.get(current).get(neighbor)
-            if tentative_gScore < gScore[neighbor]:
-                cameFrom[neighbor] = current
-                gScore[neighbor] = tentative_gScore
-                fScore[neighbor] = gScore[neighbor] + heuristic(neighbor,goal)
-                if neighbor not in openset:
-                    openset.append(neighbor)
-    
-
-    return False
-def heuristic(start, goal):
-    return math.sqrt((start[0]-goal[0])**2 + (start[1]- goal[1])**2)
-
-def mazeinput():
-    a = input().split()
-    n = int(a[0])  #미로의 세로로샛을때 갯수
-    m = int(a[1])  #미로의 가로로셋을때 갯수
-    finaldict = dict()
-
-    for i in range(n):
-        line = input()
-        for j in range(m):
-            finaldict.update({(j,i):line[j]})
-            
-    return finaldict
-
-def drawgraph(maze): #edges 생성 함수
-    graph = dict() #키 : 튜플(현 좌표) , 밸류 : {연결되는 좌표 : 길이}
-    #현재 노드 의 상하좌우를 탐색해서 W가아니면 edge 생성
-    for i in maze.keys():
-        if maze[i] == 'W':
-            continue
-        if maze[i] == 'E':
-            continue
-        x = i[0]
-        y = i[1]
-        graph[i] = dict()
-        graphUpdate(graph,x-1,y,maze,i)
-        graphUpdate(graph,x+1,y,maze,i)
-        graphUpdate(graph,x,y-1,maze,i)
-        graphUpdate(graph,x,y+1,maze,i)
-        
-            
-    return graph
-
-def graphUpdate(graph,x,y,maze,i):
-    if maze[(x,y)] == 'R':
-        graph.get(i).update( { (x,y) : 1 } )
-            
-    elif maze[(x,y)] == 'B':
-        graph.get(i).update( { (x,y) : 3 } )
-            
-    elif maze[(x,y)] == 'E':
-        graph.get(i).update( { (x,y) : 1 } )
-    
-    return
-
-def find_start_goal_list(maze):
-    startandgoal = list()
-    for i in maze.keys():
-        if maze[i] == 'S':
-            startandgoal.append(i)
-    for i in maze.keys():
-        if maze[i] == 'E':
-            startandgoal.append(i)
-    return startandgoal
-
-def redraw_maze(maze, cameFrom):
-    currline = 0
-    RorB = ['R','B']
-    if cameFrom == False:
-        for i in maze.keys():
-            if currline != i[1]:
-                currline = i[1]
-                print()
-            print(maze[i], end='')
-        return
-
-    for i in maze.keys():
-        if currline != i[1]:
-            currline = i[1]
-            print()
-        if i in cameFrom:
-            if maze[i] in RorB:
-                print('P', end='')
-                continue
-        print(maze[i], end='')
-
-        
-
-a = mazeinput()
-b=drawgraph(a)
-st_go = find_start_goal_list(a)
-astar = A_star(b,st_go[0],st_go[1])
-redraw_maze(a, astar)
-
-'''
-
-correct_source_code = '''
-import math
-import collections
-def reconstruct_path(cameFrom, current):
-    total_path = list([current])
-    while current in cameFrom.keys():
-        current = cameFrom[current]
-        total_path.append(current)
-    return total_path
-
-def A_star(graph, start, goal): #start : ex) (0,0)
-    openset = list([start])
-    cameFrom = collections.OrderedDict()
-    
-    gScore = collections.OrderedDict() #gscore[n] n 까지의 최소 길이
-    for i in graph.keys():
-        gScore[i] = float('inf')
-    gScore[goal] = float('inf')
-    gScore[start] = 0
-    
-    fScore = collections.OrderedDict()
-    for i in graph.keys():
-        fScore[i] = float('inf')
-    fScore[start] = heuristic(start,goal) # h(start) = goal 까지의길이
-    while openset != []:
-        current = openset[0]
-        for i in openset:
-            if fScore[i] < fScore[current]:
-                current = i
-        if current == goal:
-            return reconstruct_path(cameFrom,current)
-        openset.remove(current)
-
-        for neighbor in graph.get(current).keys():
-            tentative_gScore = gScore[current] + graph.get(current).get(neighbor)
-            if tentative_gScore < gScore[neighbor]:
-                cameFrom[neighbor] = current
-                gScore[neighbor] = tentative_gScore
-                fScore[neighbor] = gScore[neighbor] + heuristic(neighbor,goal)
-                if neighbor not in openset:
-                    openset.append(neighbor)
-    
-
-    return False
-def heuristic(start, goal):
-    return math.sqrt((start[0]-goal[0])**2 + (start[1]- goal[1])**2)
-
-def mazeinput():
-    a = input().split()
-    n = int(a[0])  #미로의 세로로샛을때 갯수
-    m = int(a[1])  #미로의 가로로셋을때 갯수
-    finaldict = collections.OrderedDict()
-
-    for i in range(n):
-        line = input()
-        for j in range(m):
-            finaldict.update({(j,i):line[j]})
-            
-    return finaldict
-
-def drawgraph(maze): #edges 생성 함수
-    graph = collections.OrderedDict() #키 : 튜플(현 좌표) , 밸류 : {연결되는 좌표 : 길이}
-    #현재 노드 의 상하좌우를 탐색해서 W가아니면 edge 생성
-    for i in maze.keys():
-        if maze[i] == 'W':
-            continue
-        if maze[i] == 'E':
-            continue
-        x = i[0]
-        y = i[1]
-        graph[i] = collections.OrderedDict()
-        graphUpdate(graph,x-1,y,maze,i)
-        graphUpdate(graph,x+1,y,maze,i)
-        graphUpdate(graph,x,y-1,maze,i)
-        graphUpdate(graph,x,y+1,maze,i)
-        
-            
-    return graph
-
-def graphUpdate(graph,x,y,maze,i):
-    if maze[(x,y)] == 'R':
-        graph.get(i).update( { (x,y) : 1 } )
-            
-    elif maze[(x,y)] == 'B':
-        graph.get(i).update( { (x,y) : 3 } )
-            
-    elif maze[(x,y)] == 'E':
-        graph.get(i).update( { (x,y) : 1 } )
-    
-    return
-
-def find_start_goal_list(maze):
-    startandgoal = list()
-    for i in maze.keys():
-        if maze[i] == 'S':
-            startandgoal.append(i)
-    for i in maze.keys():
-        if maze[i] == 'E':
-            startandgoal.append(i)
-    return startandgoal
-
-def redraw_maze(maze, cameFrom):
-    currline = 0
-    RorB = ['R','B']
-    if cameFrom == False:
-        for i in maze.keys():
-            if currline != i[1]:
-                currline = i[1]
-                print()
-            print(maze[i], end='')
-        return
-
-    for i in maze.keys():
-        if currline != i[1]:
-            currline = i[1]
-            print()
-        if i in cameFrom:
-            if maze[i] in RorB:
-                print('P', end='')
-                continue
-        print(maze[i], end='')
-
-        
-
-a = mazeinput()
-b=drawgraph(a)
-st_go = find_start_goal_list(a)
-astar = A_star(b,st_go[0],st_go[1])
-redraw_maze(a, astar)
-
-
-'''
-#print(evaluate(wrong_source_code, correct_source_code))
