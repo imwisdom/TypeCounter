@@ -6,7 +6,7 @@ from pythonparser.ast import Call
 from pythonparser.parser import commalist
 import math
 
-loop_count = 5
+loop_count = 8
 recv_count = 4
 
 func_count_map = {}
@@ -134,6 +134,51 @@ def count_var_into_map(target, value):
                 tuple_map[name] = 1
 
 
+def put_param_into_type_map(func_args, real_args):
+    global dict_map
+    global list_map
+    global tuple_map
+    global set_map
+    global map_map
+
+    for i in range(0, len(real_args)) :
+        cur_real_args = ""
+        if isinstance(real_args[i], Name):
+            cur_real_args = real_args[i].id
+        cur_func_args = func_args.args[i].arg
+
+        if (isinstance(real_args[i], Subscript) and hasattr(real_args[i].slice, "value") and isinstance(real_args[i].slice.value, Str)) or \
+                isinstance(real_args[i], Dict) or isinstance(real_args[i], DictComp) or cur_real_args in dict_map :
+            if cur_func_args not in dict_map :
+                dict_map[cur_func_args] = 1
+            else :
+                dict_map[cur_func_args] = dict_map[cur_func_args]+1
+
+        if isinstance(real_args[i], Subscript) or isinstance(real_args[i], List) or isinstance(real_args[i], ListComp) or cur_real_args in list_map :
+            if cur_func_args not in list_map :
+                list_map[cur_func_args] = 1
+            else :
+                list_map[cur_func_args] = list_map[cur_func_args]+1
+
+        if cur_real_args in tuple_map :
+            if cur_func_args not in tuple_map :
+                tuple_map[cur_func_args] = 1
+            else :
+                tuple_map[cur_func_args] = tuple_map[cur_func_args]+1
+
+        if cur_real_args in set_map :
+            if cur_func_args not in set_map :
+                set_map[cur_func_args] = 1
+            else :
+                set_map[cur_func_args] = set_map[cur_func_args]+1
+
+        if cur_real_args in map_map :
+            if cur_func_args not in map_map :
+                map_map[cur_func_args] = 1
+            else :
+                map_map[cur_func_args] = map_map[cur_func_args]+1
+
+
 def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
     global loop_count
     global recv_count
@@ -142,7 +187,6 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
         return
 
     for a_body in body_list:
-
         if isinstance(a_body, For):
             for i in range(0, loop_count):
                 count_object_type_in_method([a_body.target], parent_func_name, parent_recv_num)
@@ -165,10 +209,12 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
 
             if isinstance(a_body.func, Attribute):
                 if str(type(a_body.func.attr)) == "<class 'str'>" and a_body.func.attr in func_node_map :
+                    func_node = func_node_map[a_body.func.attr]
                     if a_body.func.attr == parent_func_name :
-                        count_object_type_in_method(func_node_map[a_body.func.attr].body, a_body.func.attr, parent_recv_num+1)
+                        count_object_type_in_method(func_node.body, a_body.func.attr, parent_recv_num+1)
                     else :
-                        count_object_type_in_method(func_node_map[a_body.func.attr].body, a_body.func.attr,
+                        put_param_into_type_map(func_node.args, a_body.args)
+                        count_object_type_in_method(func_node.body, a_body.func.attr,
                                                     parent_recv_num)
                 count_object_type_in_method([a_body.func], parent_func_name, parent_recv_num)
                 continue
@@ -186,17 +232,11 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
                 else :
                     count_object_type_in_method([a_body.func], parent_func_name, parent_recv_num)
                 continue
-
             func_node = func_node_map[name]
-
-            # if func_node != None:
-            #     if not (cur_method != None and cur_method.id == name):  # is recursive method
-            #         cur_method = a_body
-            #         count_object_type_in_method(func_node.body)
-            #         count_func_into_map(func_node)
 
             if func_node != None:
                 if name != parent_func_name:
+                    put_param_into_type_map(func_node.args, a_body.args)
                     count_object_type_in_method(func_node.body, name, parent_recv_num)
                     count_func_into_map(func_node)
                 else:
@@ -215,6 +255,14 @@ def count_object_type_in_method(body_list, parent_func_name, parent_recv_num):
                 count_var_into_map(var_target[0], var_value.right)
             else:
                 count_var_into_map(var_target[0], var_value)
+
+                if hasattr(var_value, "func") and hasattr(var_value.func, "attr") and var_value.func.attr == "split" \
+                        and isinstance(var_target[0], Name):
+                    global list_map
+                    if var_target[0].id in list_map :
+                        list_map[var_target[0].id] += 1
+                    else :
+                        list_map[var_target[0].id] = 1
 
             # count_object_type_in_method(var_target)
             count_object_type_in_method([var_value, None], parent_func_name, parent_recv_num)
@@ -279,7 +327,6 @@ def count_object_type(body_list):
                 count_object_type(a_body.body)
 
         elif isinstance(a_body, While):
-
             for i in range(0, loop_count):
                 count_object_type([a_body.test])
                 count_object_type(a_body.body)
@@ -293,9 +340,10 @@ def count_object_type(body_list):
                 count_object_type(a_body.args)
 
             if isinstance(a_body.func, Attribute):
-
                 if str(type(a_body.func.attr)) == "<class 'str'>" and a_body.func.attr in func_node_map :
-                    count_object_type_in_method(func_node_map[a_body.func.attr].body, a_body.func.attr, 0)
+                    func_node = func_node_map[a_body.func.attr]
+                    put_param_into_type_map(func_node.args, a_body.args)
+                    count_object_type_in_method(func_node.body, a_body.func.attr, 0)
                 count_object_type([a_body.func])
                 continue
 
@@ -316,16 +364,7 @@ def count_object_type(body_list):
             func_node = func_node_map[name]
 
             if func_node is not None:
-                # if cur_method is not None and cur_method.id == name:  # is recursive method
-                #
-                #     for i in range(0, recv_count):
-                #         count_object_type_in_method(func_node.body)
-                #         count_func_into_map(func_node)
-                #
-                # else:
-                #     cur_method = a_body.func
-                #     count_object_type(func_node.body)
-                #     count_func_into_map(func_node)
+                put_param_into_type_map(func_node.args, a_body.args)
                 count_object_type_in_method(func_node.body, name, 0)
                 count_func_into_map(func_node)
 
@@ -341,7 +380,14 @@ def count_object_type(body_list):
                 count_var_into_map(var_target[0], var_value.right)
             else:
                 count_var_into_map(var_target[0], var_value)
-            # count_object_type(var_target)
+
+                if hasattr(var_value, "func") and hasattr(var_value.func, "attr") and var_value.func.attr == "split" \
+                        and isinstance(var_target[0], Name):
+                    global list_map
+                    if var_target[0].id in list_map :
+                        list_map[var_target[0].id] += 1
+                    else :
+                        list_map[var_target[0].id] = 1
 
             count_object_type([var_value])
 
@@ -394,39 +440,17 @@ def count_object_type(body_list):
         elif str(type(a_body)) == "<class 'list'>" and len(a_body)>1:
             count_object_type(a_body)
 
-
 def evaluate_using_json_data(wrong_dict, correct_total_dict):
-    #print("wrong_dict : ", wrong_dict)
-    #print("correct_dict : ", correct_total_dict["sum"])
 
     count_dict = correct_total_dict["count"]
     not_used_list = []
 
     #similarity
-    wrong_mul_sum = 0
-    wrong_sum = 0
-    sum_sum = 0
     sum_dict = correct_total_dict["sum"]
     similarity = 0
-
-    # for key in wrong_dict :
-    #     wrong_mul_sum = wrong_mul_sum + wrong_dict[key]*sum_dict[key]
-    #     wrong_sum = wrong_sum + wrong_dict[key]**2
-    #     sum_sum = sum_sum + sum_dict[key]**2
-    #
-    # wrong_sum = math.sqrt(wrong_sum)
-    # sum_sum = math.sqrt(sum_sum)
-    #
-    # if wrong_sum*sum_sum == 0:
-    #     similarity = 0
-    # else :
-    #     similarity = wrong_mul_sum/(wrong_sum*sum_sum)
-
     for key in wrong_dict :
         similarity = similarity + (wrong_dict[key] - sum_dict[key])**2
-
     similarity = math.sqrt(similarity)
-    #print("similarity : ", similarity)
 
     for key in count_dict:
         if count_dict[key] >= 0.85 and wrong_dict[key] == 0:
@@ -437,7 +461,7 @@ def evaluate_using_json_data(wrong_dict, correct_total_dict):
             if (key == "List" and "Array" in wrong_dict and wrong_dict["Array"] > 0) or (key == "Array" and wrong_dict["List"] > 0) :
                 not_used_list.remove(key)
         if len(not_used_list) > 0 :
-            return None, "사용 권장 데이터 타입 : "+str(not_used_list), similarity
+            return "사용 권장 데이터 타입 : "+str(not_used_list), similarity
 
     sum_of_wrong = 0
     for key in wrong_dict :
@@ -446,64 +470,24 @@ def evaluate_using_json_data(wrong_dict, correct_total_dict):
     diff_dict = {}
 
     for key in wrong_dict:
-        if sum_dict[key] == 0 or wrong_dict[key] == 0 or count_dict[key] == 0:
+        if wrong_dict[key] == 0 :
             continue
 
         #cur_diff = (abs(sum_dict[key] - wrong_dict[key])/sum_dict[key])*(wrong_dict[key]/sum_of_wrong)
 
-        cur_diff = math.sqrt((sum_dict[key] - wrong_dict[key])**2+(count_dict[key]-1)**2)
+        cur_diff = math.sqrt((sum_dict[key] - wrong_dict[key])**2+((count_dict[key]-1)*10)**2)
         diff_dict[key] = cur_diff
 
     def sort_for_value(x):
         return x[1]
 
     sorted_diff = sorted(diff_dict.items(), key=sort_for_value, reverse=True)
-    solve = sorted_diff[0][0]+" 사용 방식이 잘못되었습니다.\n"
 
-    return sorted_diff, solve, similarity
+    solve = ""
+    if len(sorted_diff) > 0 :
+        solve = "\n"+sorted_diff[0][0]+" 사용 방식이 잘못되었습니다."
 
-
-# def evaluate_using_json_data(wrong_dict, correct_total_dict):
-#     print("wrong_dict : ", wrong_dict)
-#     print("correct_dict : ", correct_total_dict["sum"])
-#
-#     count_dict = correct_total_dict["count"]
-#     not_used_list = []
-#
-#     for key in count_dict:
-#         if count_dict[key] >= 0.7 and wrong_dict[key] == 0:
-#             not_used_list.append(key)
-#
-#     if len(not_used_list) > 0:
-#         return "사용 권장 데이터 타입 : " + str(not_used_list)
-#
-#
-#     sum_dict = correct_total_dict["sum"]
-#     sum_of_wrong = 0
-#     for key in wrong_dict:
-#         sum_of_wrong = sum_of_wrong + wrong_dict[key]
-#
-#     for key in wrong_dict:
-#         wrong_dict[key] = wrong_dict[key]/sum_of_wrong
-#
-#     sum_of_wrong = 0
-#     for key in sum_dict:
-#         sum_of_wrong = sum_of_wrong + sum_dict[key]
-#
-#     for key in sum_dict:
-#         sum_dict[key] = sum_dict[key] / sum_of_wrong
-#
-#     diff_dict = {}
-#     for key in wrong_dict :
-#         cur_diff = abs(sum_dict[key]-wrong_dict[key])
-#         if cur_diff > 0 and wrong_dict[key] > 0:
-#             diff_dict[key] = cur_diff
-#
-#     def sort_for_value(x):
-#         return x[1]
-#
-#     sorted_diff = sorted(diff_dict.items(), key=sort_for_value, reverse=True)
-#     return sorted_diff
+    return str(sorted_diff)+solve
 
 def evaluate(training_src, test_src):
     training_array = count_total_data(training_src)
